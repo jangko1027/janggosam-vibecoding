@@ -5,127 +5,122 @@ import { GoogleGenAI } from "@google/genai";
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "2mb" }));
+app.use(express.static("public"));
 
-// index.html, style.css, app.js가 최상위에 있으므로 현재 폴더를 공개합니다.
-app.use(express.static("."));
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-const apiKey = process.env.GEMINI_API_KEY;
-const model = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+const questions = [
+  "어떤 게임을 만들고 싶어?",
+  "게임의 주인공은 누구야?",
+  "주인공은 게임에서 무엇을 해야 해?",
+  "게임에서 만나거나 피하거나 모아야 하는 것은 뭐야?",
+  "몇 번 실패하면 게임이 끝나게 할까?",
+  "어떻게 하면 이기는 게임으로 할까?"
+];
 
-const SYSTEM_INSTRUCTION = `
-너는 "장고샘 바이브코딩 AI 선생님"이다.
-대상은 초등학교 5학년 학생이다.
-
-코딩을 몰라도 자기 아이디어를 말하고 AI와 대화하며
-실제 HTML/CSS/JavaScript 작품을 만들도록 돕는다.
-
-친절하고 재미있는 말투를 사용한다.
-한 번에 질문 하나만 한다.
-
-개인정보(이름, 전화번호, 주소, 학교의 구체적인 정보 등)를 요구하지 않는다.
-
-위험하거나 초등학생에게 부적절한 콘텐츠는 거절하고
-안전한 프로젝트로 유도한다.
-
-학생이 만들기를 원하면 실행 가능한 HTML을 만든다.
-CSS와 JavaScript는 HTML 안에 넣는다.
-
-외부 라이브러리는 꼭 필요하지 않으면 사용하지 않는다.
-
-코드를 만들 때 반드시 \`\`\`html 코드블록으로 제공한다.
-
-학생이 수정 요청을 하면 기존 작품을 유지하면서 수정한다.
-
-첫 인사:
-"👋 안녕! 나는 장고샘 바이브코딩 AI 선생님이야!
-코딩을 몰라도 괜찮아.
-네가 생각한 것을 AI와 함께 진짜 작품으로 만들어보자!
-오늘은 무엇을 만들어볼까?
-🎮 게임, 🌐 홈페이지, 🧩 퀴즈도 좋아!"
-`;
-
-function cleanHistory(history) {
-  if (!Array.isArray(history)) return [];
-
-  return history
-    .filter(
-      (x) =>
-        x &&
-        (x.role === "user" || x.role === "model") &&
-        typeof x.text === "string"
-    )
-    .slice(-20)
-    .map((x) => ({
-      role: x.role,
-      parts: [
-        {
-          text: x.text.slice(0, 12000)
-        }
-      ]
-    }));
+function cleanText(text) {
+  return String(text || "").trim().slice(0, 1000);
 }
 
 app.post("/api/chat", async (req, res) => {
   try {
-    if (!ai) {
-      return res.status(500).json({
-        error: "GEMINI_API_KEY가 설정되지 않았습니다."
-      });
-    }
+    const stage = Math.max(0, Math.min(questions.length - 1, Number(req.body.stage) || 0));
+    const answer = cleanText(req.body.answer);
 
-    const message = String(req.body?.message || "").trim();
+    const prompt = `
+너는 "장고샘의 바이브코딩 선생님"이야.
+대상은 초등학교 5학년 학생이야.
+학생은 코딩을 처음 배우고 있어.
 
-    if (!message) {
-      return res.status(400).json({
-        error: "메시지를 입력해주세요."
-      });
-    }
+목표:
+학생이 질문에 답하면서 자기 게임을 머릿속으로 설계하도록 도와준다.
 
-    const contents = [
-      ...cleanHistory(req.body?.history),
-      {
-        role: "user",
-        parts: [
-          {
-            text: message.slice(0, 12000)
-          }
-        ]
-      }
-    ];
+규칙:
+- 어려운 코딩 용어를 절대 쓰지 않는다.
+- 한 번에 질문은 딱 하나만 한다.
+- 학생의 대답을 먼저 짧게 칭찬한다.
+- 그 다음 아주 쉬운 말로 다음 질문을 한다.
+- 질문은 길지 않게 한다.
+- 학생이 엉뚱하게 답해도 혼내지 말고 게임 아이디어로 자연스럽게 연결한다.
+- 코드를 보여주지 않는다.
+- 지금 단계는 ${stage + 1}번째 질문이다.
+- 이번 질문은 "${questions[stage]}"이다.
+- 학생의 이전 대답: "${answer}"
+
+다음 질문을 포함해 2~3문장으로 한국어로 답해줘.
+`;
 
     const response = await ai.models.generateContent({
-      model,
-      contents,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        maxOutputTokens: 7000
-      }
+      model: MODEL,
+      contents: prompt
     });
 
-    const text = response.text || "미안해. 다시 한번 말해줘!";
-
-    const match = text.match(/```html\s*([\s\S]*?)```/i);
-
-    res.json({
-      text,
-      code: match ? match[1].trim() : null
-    });
-  } catch (e) {
-    console.error(e);
-
-    res.status(500).json({
-      error: "AI 선생님과 연결하는 중 문제가 생겼어요."
-    });
+    res.json({ message: response.text.trim() });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "AI와 연결하지 못했어요. 잠시 후 다시 해주세요." });
   }
 });
 
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+app.post("/api/game", async (req, res) => {
+  try {
+    const answers = Array.isArray(req.body.answers) ? req.body.answers.map(cleanText) : [];
+
+    const prompt = `
+너는 초등학교 5학년을 위한 바이브코딩 선생님이다.
+아래 학생의 답변을 이용해서 아주 간단하고 재미있는 "한 화면에서 바로 실행되는 HTML 게임"을 만들어라.
+
+학생 답변:
+1. 게임 종류: ${answers[0] || ""}
+2. 주인공: ${answers[1] || ""}
+3. 해야 할 일: ${answers[2] || ""}
+4. 장애물/아이템: ${answers[3] || ""}
+5. 실패 조건: ${answers[4] || ""}
+6. 승리 조건: ${answers[5] || ""}
+
+게임 제작 규칙:
+- 결과는 완전한 HTML 문서 하나만 출력한다.
+- 설명, 마크다운, 코드펜스는 출력하지 않는다.
+- CSS와 JavaScript를 모두 HTML 안에 넣는다.
+- 외부 라이브러리, 외부 이미지, 외부 사이트, 네트워크 요청은 사용하지 않는다.
+- 이모지, CSS 도형, 캔버스 등으로 게임을 표현한다.
+- 시작 버튼과 다시하기 버튼을 넣는다.
+- 키보드와 클릭/터치 중 가능한 조작을 사용한다.
+- 초등학생이 1~2분 안에 이해할 수 있는 간단한 게임으로 만든다.
+- 승리/실패가 실제로 작동해야 한다.
+- 화면 상단에 점수와 상태를 보여준다.
+- 모바일에서도 보기 좋게 만든다.
+- alert를 과도하게 사용하지 않는다.
+- 학생이 말한 내용을 최대한 반영하되, 답변이 부족하면 재미있게 보완한다.
+- 안전하지 않은 코드나 브라우저 저장소 접근, 쿠키 접근, 네트워크 접근은 하지 않는다.
+`;
+
+    const response = await ai.models.generateContent({
+      model: MODEL,
+      contents: prompt
+    });
+
+    let html = response.text.trim();
+    html = html.replace(/^```html\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
+
+    if (!html.toLowerCase().includes("<html")) {
+      html = `<!doctype html><html><body><h2>게임을 다시 만들어 주세요.</h2></body></html>`;
+    }
+
+    res.json({ html });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "게임을 만드는 중 문제가 생겼어요. 다시 눌러주세요." });
+  }
+});
+
+app.get("*", (req, res) => {
+  res.sendFile(process.cwd() + "/public/index.html");
 });
 
 app.listen(port, () => {
-  console.log("장고샘 서버 실행: " + port);
+  console.log(`Janggosam Vibe Coding is running on port ${port}`);
 });

@@ -1,5 +1,175 @@
-<!doctype html><html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>장고샘 바이브코딩 AI 선생님</title><link rel="stylesheet" href="/style.css"></head><body>
-<header><div><b>👩‍🏫 장고샘 바이브코딩 AI 선생님</b><small>내 생각을 AI와 함께 진짜 작품으로!</small></div><button id="new">＋ 새 작품</button></header>
-<main><aside><b>🚀 나의 프로젝트</b><div id="project">새로운 작품</div><div class="steps"><span class="on">1. 아이디어</span><span>2. 계획</span><span>3. 만들기</span><span>4. 실행</span><span>5. 수정</span><span>6. 완성!</span></div><hr><b>💡 추천 미션</b><button class="mission">🐶 강아지 게임</button><button class="mission">🧩 3문제 퀴즈</button><button class="mission">🌈 소개 페이지</button></aside>
-<section class="chat"><div id="messages"></div><div class="quick"><button>🎮 게임</button><button>🌐 홈페이지</button><button>🧩 퀴즈</button></div><form id="form"><textarea id="input" placeholder="무엇을 만들고 싶은지 말해줘 😊"></textarea><button>보내기 🚀</button></form><small class="privacy">로그인 없이 사용합니다. 개인정보는 입력하지 마세요.</small></section>
-<section class="preview"><div class="ph"><b>🖥️ 내가 만든 작품</b><button id="run" disabled>▶ 실행</button></div><div class="frame"><iframe id="iframe" sandbox="allow-scripts"></iframe><div id="empty">🚀<b>여기에 네 작품이 나타나요!</b><span>AI 선생님과 아이디어를 이야기해보자.</span></div></div><div class="ch"><b>💻 생성된 코드</b><button id="copy" disabled>코드 복사</button></div><pre id="code">아직 코드가 없어요.</pre></section></main><script src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>장고샘의 바이브코딩 게임 만들기</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Arial,"Noto Sans KR",sans-serif;background:#eef7ff;color:#203040}
+  .wrap{max-width:760px;margin:0 auto;padding:20px}
+  .title{text-align:center;margin:10px 0 18px}
+  .title h1{font-size:28px;margin:0 0 8px}
+  .title p{margin:0;color:#5b6b78}
+  .card{background:white;border-radius:24px;padding:22px;box-shadow:0 8px 30px #00000012}
+  .progress{display:flex;gap:7px;margin-bottom:18px}
+  .dot{height:8px;flex:1;border-radius:10px;background:#dbe6ee}
+  .dot.on{background:#5b9bd5}
+  .chat{min-height:360px;max-height:52vh;overflow:auto;padding:4px}
+  .bubble{padding:13px 16px;border-radius:18px;margin:10px 0;line-height:1.55;white-space:pre-wrap}
+  .ai{background:#eef6ff;margin-right:45px}
+  .me{background:#f4f4f4;margin-left:45px;text-align:right}
+  .inputrow{display:flex;gap:9px;margin-top:15px}
+  input{flex:1;border:2px solid #d8e2ea;border-radius:15px;padding:14px;font-size:16px;outline:none}
+  input:focus{border-color:#5b9bd5}
+  button{border:0;border-radius:15px;padding:13px 18px;font-size:16px;font-weight:bold;cursor:pointer}
+  .send{background:#5b9bd5;color:white}
+  .game{display:none}
+  .game iframe{width:100%;height:600px;border:2px solid #dce7ef;border-radius:18px;background:white}
+  .big{width:100%;background:#5b9bd5;color:white;margin-top:12px}
+  .small{background:#eef3f7;color:#304050;margin-top:10px}
+  .hint{text-align:center;font-size:13px;color:#73818b;margin-top:10px}
+  .loading{opacity:.65}
+  @media(max-width:600px){
+    .wrap{padding:10px}.card{padding:15px}.title h1{font-size:23px}
+    .chat{min-height:330px}.ai{margin-right:20px}.me{margin-left:20px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title">
+    <h1>🎮 장고샘의 바이브코딩</h1>
+    <p>대답만 하면 나만의 게임이 만들어져요!</p>
+  </div>
+
+  <div class="card" id="chatCard">
+    <div class="progress" id="progress"></div>
+    <div class="chat" id="chat"></div>
+
+    <div class="inputrow" id="inputRow">
+      <input id="answer" maxlength="1000" placeholder="생각나는 대로 써보세요!" autocomplete="off">
+      <button class="send" id="send">대답하기</button>
+    </div>
+    <div class="hint">어려운 말은 필요 없어요 😊</div>
+  </div>
+
+  <div class="card game" id="gameCard">
+    <h2>🎉 네 게임이 완성됐어요!</h2>
+    <p>아래에서 바로 게임을 해보세요.</p>
+    <iframe id="gameFrame" sandbox="allow-scripts"></iframe>
+    <button class="big" id="again">🔄 다시 게임 만들기</button>
+  </div>
+</div>
+
+<script>
+const total = 6;
+let stage = 0;
+let answers = [];
+let busy = false;
+
+const chat = document.getElementById("chat");
+const answer = document.getElementById("answer");
+const send = document.getElementById("send");
+const progress = document.getElementById("progress");
+const chatCard = document.getElementById("chatCard");
+const gameCard = document.getElementById("gameCard");
+const gameFrame = document.getElementById("gameFrame");
+const inputRow = document.getElementById("inputRow");
+
+function drawProgress(){
+  progress.innerHTML = "";
+  for(let i=0;i<total;i++){
+    const d=document.createElement("div");
+    d.className="dot " + (i <= stage ? "on" : "");
+    progress.appendChild(d);
+  }
+}
+
+function addBubble(text, who){
+  const div=document.createElement("div");
+  div.className="bubble " + who;
+  div.textContent=text;
+  chat.appendChild(div);
+  chat.scrollTop=chat.scrollHeight;
+}
+
+async function askAI(){
+  busy=true; send.disabled=true; answer.disabled=true;
+  send.textContent="생각 중...";
+  try{
+    const r=await fetch("/api/chat",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({stage, answer:answers[stage] || ""})
+    });
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.error || "오류");
+    addBubble(data.message,"ai");
+  }catch(e){
+    addBubble("앗, 잠깐 문제가 생겼어요. 다시 대답하기를 눌러주세요.","ai");
+  }finally{
+    busy=false; send.disabled=false; answer.disabled=false;
+    send.textContent="대답하기";
+    answer.focus();
+  }
+}
+
+async function makeGame(){
+  inputRow.style.display="none";
+  addBubble("좋아! 지금까지 만든 생각을 모아서 게임을 만들고 있어요. 🎨","ai");
+  try{
+    const r=await fetch("/api/game",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({answers})
+    });
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.error || "오류");
+    gameFrame.srcdoc=data.html;
+    chatCard.style.display="none";
+    gameCard.style.display="block";
+  }catch(e){
+    inputRow.style.display="flex";
+    addBubble("게임을 만드는 중 문제가 생겼어요. 다시 한 번 눌러주세요.","ai");
+  }
+}
+
+send.addEventListener("click", async ()=>{
+  if(busy) return;
+  const text=answer.value.trim();
+  if(!text) return;
+  addBubble(text,"me");
+  answers.push(text);
+  answer.value="";
+  stage++;
+  drawProgress();
+
+  if(stage >= total){
+    await makeGame();
+  }else{
+    await askAI();
+  }
+});
+
+answer.addEventListener("keydown",e=>{
+  if(e.key==="Enter") send.click();
+});
+
+document.getElementById("again").addEventListener("click",()=>{
+  stage=0; answers=[]; busy=false;
+  chat.innerHTML="";
+  gameCard.style.display="none";
+  chatCard.style.display="block";
+  inputRow.style.display="flex";
+  drawProgress();
+  addBubble("안녕! 😊 오늘은 네가 직접 게임을 만들어 볼 거야.\n내가 하나씩 물어볼게. 생각나는 대로 대답하면 돼!","ai");
+  askAI();
+});
+
+drawProgress();
+addBubble("안녕! 😊 오늘은 네가 직접 게임을 만들어 볼 거야.\n내가 하나씩 물어볼게. 생각나는 대로 대답하면 돼!","ai");
+askAI();
+</script>
+</body>
+</html>
